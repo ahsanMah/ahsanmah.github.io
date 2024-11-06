@@ -1,0 +1,438 @@
+---
+title: "Building Graph Neural Networks from Scratch"
+author: "Ahsan Mahmood"
+date: 11/06/2024
+bibliography: references.bib
+date-format: long
+toc: true
+number-sections: true
+highlight-style: pygments
+format: html
+theme:
+  light: journal 
+  dark: darkly
+execute: 
+  cache: True
+jupyter: python3
+---
+
+This is my attempt to understand Graph Neural Nets (GNNs), implementing the building blocks as I go. I have heavily relied on the seminal Neural Message Passing paper[@pmlr-v70-gilmer17a] and the excellent Distill post on GNNs[@sanchez-lengeling2021a] as my sources and I urge readers to look at them.
+
+## What is a graph anyway?
+
+Graphs will always show up in the form of `nodes` and `edges`. Either can have features. You can represent your data using a few building blocks:
+
+-   Node feature matrix
+-   Edge feature matrix
+-   Global feature vector (optional)
+-   Graph connectivity
+    -   Option 1: Adjacency list
+        -   An array of node pairs $(u, v)$ representing an edge $u \rightarrow v$
+    -   Option 2: Adjacency matrix
+        -   An NxN matrix where each entry gets a 0/1 if there is an edge present in the graph
+        -   Note that these matrices can be huge for large graphs so one may be forced to use adjacency lists in order to even fit the data into a network
+
+We will see that connectivity information explicitly determines the types of operations and the order of operations to perform on the node / edge feature tensors.
+         
+::: {.callout-note}
+Note that you can have multiple 'samples' i.e. many graphs or a single graph. To get multiple samples/batches from a single large graph, you can sample a subgraph. There are many techniques to sample, which are not covered for now.
+:::
+
+### A graph in the wild
+
+We can download a public dataset from the `torch_geometric` package and view how the data is organized. This is the MUTAG which consists of graphs representing different molecules. We have labels associated with each molecule wwhich we can try to learn. 
+
+```{python}
+#| code-fold: true
+#| code-summary: Code to download the graph dataset
+# %pip install torch_geometric -q
+
+import torch
+import torch_geometric
+import torch.nn as nn
+import seaborn as sns
+from matplotlib import pyplot as plt
+
+DATASET_PATH = "/tmp/data"
+
+# Random number generator for later use
+rand_generator = torch.Generator()
+rand_generator.manual_seed(42)
+torch.set_printoptions(precision=3)
+
+dataset = torch_geometric.datasets.TUDataset(
+root=DATASET_PATH, name="MUTAG",
+use_edge_attr=True, use_node_attr=True
+)
+print()
+print(f'Dataset: {dataset}:')
+print('====================')
+print(f'Number of graphs: {len(dataset)}')
+print(f'Number of features: {dataset.num_features}')
+print(f'Number of classes: {dataset.num_classes}')
+```
+
+```{python}
+#| code-fold: true
+#| code-summary: We can grab a single graph sample and display its properties
+data = dataset[0] # Get the first graph object.
+
+print()
+print(data)
+print('=============================================================')
+
+# Gather some statistics about the first graph.
+print(f'Number of nodes: {data.num_nodes}')
+print(f'Number of edges: {data.num_edges}')
+print(f'Average node degree: {data.num_edges / data.num_nodes:.2f}')
+print(f'Has isolated nodes: {data.has_isolated_nodes()}')
+print(f'Has self-loops: {data.has_self_loops()}')
+print(f'Is undirected: {data.is_undirected()}')
+```
+
+
+### Brief Aside: *Why* use graphs?
+
+This is primarily a modeling decision. We want to emphasize the *relational* properties of the data, and edges essentially define a relation between two entities. We thus force our models to use this connectivity information in some manner. You could 'flatten' a graph into nodes with features, and convert each edge into a feature of the node. But this quickly becomes untenable and sparse (\$n\^2\$ features for the existence of each edge alone + all sorts of edge features we are interested in).
+
+
+![Molecules are often represented as graphs and for good reason. The relationships between each atom is precisely what gives a molecule its properties. The molecule shown above is called Vanillin. You might be able to guess its smell and taste!](https://upload.wikimedia.org/wikipedia/commons/c/c7/Vanillin2.svg)
+
+
+
+Molecules provide an illustrative example of the efficiency for modeling the data as graphs and not as "feature matrices". How should we represent Vanillin in the image above? We could take one element at a time and keep a list of all its features and bonds: `Carbon, [is_gas, is_connected_to_Oxygen, is_connected_to_Oxygen_with_double_bond, is_connected_to_Hydrogen, ...]`. This could be a huge vector if all connections are considered. 
+
+We can even forget about the bonds, and the graph structuire will still emerge as an efficient scheme to represent the data. Say our molecule is composed of the elements Carbon, Oxygen, Iron and Aluminum. Should Iron and Aluminum have a 'static' feature for representing `is_metal`? If so, thenCarbon and Oxygen will also need to have a `is_metal` feature as part of the data representation. It might be more efficient to model "metallicness" as a relation between *only* the two entities that we care about. You could go on: should every entity have a feature saying `is_nobel_gas` or an edge connecting the few nobel gases in the dataset? Both techniques are valid, but we humans choose to feed our machines what we have deemed important.
+
+
+## Graph Neural Networks
+
+The basic building blocks of a graph neural network include:
+
+-   Embedding layers to learn rich representations of node / edge features
+-   Message Passing layers to combine information using the connectivity defined by the graph
+    -   This is the meat and potatoes so to speak
+-   Graph "readout" layers from getting the final prediction
+
+### Learn better representations of your input via Embedding Layers
+
+Transforming input features into ~~inscrutable~~ 'rich' representations is the bread and butter of deep learning. So we do the same. We can construct an embedding layer ourselves, using a weight matrix. You can think of this as an MLP / Feed Forward / `torch. nn.Linear` network with a single hidden layer and no bias. You could also just call it a linear transform but that doesn't not as fancy.
+
+```{python}
+class Embedder:
+
+  def __init__(self, n_input, n_hidden):
+    weight_matrix = torch.randn(n_input, n_hidden,
+                       generator=rand_generator)
+    # Adjust weights to keep values small
+    weight_matrix /= n_hidden
+    self.W = torch.nn.Parameter(weight_matrix)
+
+  def __call__(self, x):
+    return torch.mm(x, self.W)
+
+hidden_dims = 5
+node_embedder = Embedder(n_input=7, n_hidden=hidden_dims)
+edge_embedder = Embedder(n_input=4, n_hidden=hidden_dims)
+```
+
+```{python}
+
+# Grab the nddes and edges from our graph sample
+nodes = data.x
+edges = data.edge_attr
+edge_list = data.edge_index.T
+
+node_embs = node_embedder(nodes)
+edge_embs = edge_embedder(edges)
+
+num_edges, num_edge_features = edge_embs.shape
+node_embs.shape, edge_embs.shape
+```
+
+### Combine features via Message Passing
+
+Message passing layers are more conceptual than concrete layers like Attention or Convolution Kernels. In the context of GNNs, this concept was popularized by (Gilmer et.al)\[https://arxiv.org/abs/1704.01212\] in the Message Passing Neural Networks (MPNN) paper. The idea is to use the graph connections *in some manner* to aggregate information from neighbours.
+
+The main idea is to take an edge \$e: v \rightarrow w \$ and pass the message from the target node $w$ to the source node $v$. We can also use information from the edge itself.
+
+Under this lens, we can make the simplest form of message passing by adding information from neighbors and calling it a day.
+
+```{python}
+class SimpleMessagePasser:
+
+  def __init__(self):
+    pass
+
+  def __call__(self, v, w, e_vw):
+    '''
+    Pass information TO v FROM w, additionally using edge information
+    This implementation does not use v
+    '''
+    m = w + e_vw
+    return m
+  
+messenger = SimpleMessagePasser()
+```
+
+#### Pass a single message along an edge
+
+To see a message creation in action, we can grab an edge from our graph ancd compute embeddings for all entities involved.
+
+```{python}
+# Pick lucky number 13
+edge_idx = 13
+
+# The edge list stores index of the source and target nodes
+node_v_idx, node_w_idx = edge_list[edge_idx]
+
+# We index into the embedding matrix and grab the corresponding features
+v, w = node_embs[node_v_idx], node_embs[node_w_idx]
+e = edge_embs[edge_idx]
+
+# These should all be of size `hidden_dimension` h
+v.shape, w.shape, e.shape
+```
+
+Pass messages from w to v using e
+
+```{python}
+messenger(v, w, e).shape
+```
+
+#### Pass multiple messages across the entire graph
+
+Of course a graph has many edges and thus many messages to pass! Using a Tensor library like `torch` enables us to use clever indexing mechanisms to grab all the messages in one invocation.
+```{python}
+# Get indices for *all* nodes with edges
+node_v_idxs, node_w_idxs = edge_list[:, 0], edge_list[:, 1]
+v, w = node_embs[node_v_idxs], node_embs[node_w_idxs]
+
+# Every edge in order
+e = edge_embs
+
+# Every message from every edge
+messages = messenger(v, w, e)
+messages.shape
+```
+
+If we take a look at all the source nodes, we see that they show up multiple times. This is because they have multiple edges.
+```{python}
+node_v_idxs
+```
+
+You can do a quick and dirty count of neighbours for each node by constructing an adjacency matrix like below.
+```{python}
+A = torch.zeros(data.num_nodes, data.num_nodes)
+n1, n2 = data.edge_index
+A[n1, n2] = 1
+neighbor_counts = A.sum(axis=1, keepdim=True)
+neighbor_counts.flatten()
+```
+
+We thus need to combine the messages or aggregate them in some manner. In deep learning lingo, you can also think of this as 'pooling' information from the neighboring nodes. We can also print out embeddings for the last three nodes just to see.
+
+```{python}
+print("Node embeddings before message passing:")
+print(node_embs[-3:])
+
+# Aggregate / Pool information from neighboring nodes
+# respecting the neighborhood defined by the graph
+
+for edge, h_message in zip(edge_list, messages):
+  # Note that node_w will be updated later
+  # when it is the source node in the edge
+  node_v_idx, node_w_idx = edge
+
+  # Aggregation method = sum
+  node_embs[node_v_idx] += h_message
+
+# Normalize by number of neighbors (optional but common)
+node_embs /= neighbor_counts
+
+# Updated embeddings
+print("========================")
+print("Node embeddings after message passing:")
+print(node_embs[-3:])
+```
+
+:::{.callout-note}
+Note that GNNs often perform many such message passing rounds. For this post, we will only focus on one but there is much flexibility in how one can perform multiple rounds. Again, message passign is more of a concept than a strict methodology. 
+:::
+
+#### Brief Aside: Loops can be slow - use fancier methods instead
+
+The above method to aggregate messages via iterating over the adjacency list *will* work but in practice, more efficient methods are used. In  particular, Tensor operation libraries like PyTorch have built in methods such as `scatter_reduce` which will perform the update operations for you, while keeping track of gradients. From the torch documentation, we have the example below. The function allows us to update `input` (in-place) at position `index` by using the values from `src`.
+
+```{python}
+src = torch.tensor(  [1., 2., 3., 4., 5., 6.]).requires_grad_(True)
+index = torch.tensor([0, 1, 0, 1, 2, 1])
+input = torch.tensor([1., 2., 3., 4.])
+input.scatter_reduce_(0, index, src, reduce="sum")
+```
+
+So at position 0 of `input`, we have the sum of 1 (from `input` itself) + 1 (from `src[0]`) + 3 (from `src[2]). We can even compute gradients like below.
+
+```{python}
+input[0].backward()
+src.grad # Which elements were used to update input 0?
+```
+
+To make the computation even clearer, we can step through the process of grabbing the appropriate indices from the edge list and applying the updates via `scatter_reduce_`.
+
+```{python}
+# We are building the index tensor that will define which node to update
+message_target_nodes = torch.zeros(num_edges, num_edge_features, dtype=torch.long)
+
+# Get target node indices from edge list
+message_target_nodes[:] = edge_list[:,0].reshape(-1,1)
+
+# E.g. row 3 can be read as: update node at index=1
+# using a message at index=2 from the message tensor
+# The column dimensions can be read as saying
+# ALL columns in message_row=3 will be used to update columns in node_row=1
+message_target_nodes[:4]
+```
+
+:::{.callout-warning}
+Note that we would ideally only need a message-index tensor of shape (num_edges, 1). However, the torch backprop only works when index exactly matches the message shape.
+:::
+
+```{python}
+
+node_embs = node_embedder(nodes)
+node_embs.scatter_reduce_(dim=0, index=message_target_nodes, src=messages,
+                           reduce='sum',include_self=True)
+node_embs = node_embs / neighbor_counts
+node_embs[-3:]
+```
+
+
+### "Read out" the learned graph embeddings
+
+The last block of our humble GNN will be a prediction layer. This will be another transformation to spit out the desired output of the model. In the case of classification, this layer will output the predictions for each class. This is often done *per node* and then aggregated to compute a *graph-level* prediction.
+```{python}
+# Graph-wise output to predict two classes
+predictor = Embedder(hidden_dims, 2)
+graph_feature = predictor(node_embs)
+output_logits = torch.sum(graph_feature, axis=0, keepdim=True)
+output_logits
+```
+
+Check to see if we can backprop through the whole mechanism
+```{python}
+output_logits.sum().backward()
+```
+
+We can see that the gradients exist for our edge embedding layer. 
+```{python}
+edge_embedder.W.grad
+```
+
+Note that we could have picked any flavor of prediction function. It could even output the same number of features as the original graph to create a Graph Autoencoder of sorts. this is precisely what we are going to do next to bring everything together!
+
+## Learn to reconstruct an input
+
+One of the best methods to test your deep learning model is to check and see whether it can "overfit" to a small batch or even a single sample. We have all the elements for our GNN. Now we can train it to learn to reconstruct the sample graph we have been playing around with.
+
+```{python}
+#| code-fold: true
+#| code-summary: Reinitialize our GNN layers and define functions to perform gradient descent
+rand_generator.manual_seed(42)
+hidden_dims = 3
+input_node_features = 7
+input_edge_features = 4
+learning_rate = 1e-2
+
+node_embedder = Embedder(n_input=input_node_features, n_hidden=hidden_dims)
+edge_embedder = Embedder(n_input=input_edge_features, n_hidden=hidden_dims)
+predictor = Embedder(hidden_dims, input_node_features)
+
+layers = [
+      node_embedder,
+      edge_embedder,
+      predictor
+]
+
+def zero_grad(layers):
+  for l in layers:
+    l.W.grad = None
+
+@torch.no_grad
+def update(layers):
+  '''
+  A basic SGD step!
+  '''
+  for l in layers:
+    l.W.add_(l.W.grad, alpha=-learning_rate)
+
+```
+
+```{python}
+# Get the entities of the graph
+nodes = data.x
+edges = data.edge_attr
+edge_list = data.edge_index.T
+
+for i in range(10_000):
+  zero_grad(layers)
+
+  # Get embeddings
+  node_embs = node_embedder(nodes)
+  edge_embs = edge_embedder(edges)
+
+  # Get edge list and compute messages
+  node_v_idxs, node_w_idxs = edge_list[:,0], edge_list[:,1]
+  v_embs, w_embs = node_embs[node_v_idxs], node_embs[node_w_idxs]
+  messages = messenger(v_embs, w_embs, edge_embs)
+
+  # Get message-target node indices from edge list
+  # i.e. the nodes that will receive the message
+  num_edges, num_message_features = messages.shape
+  message_target_nodes = torch.zeros(num_edges, num_message_features,
+                                     dtype=torch.long, requires_grad=False)
+  message_target_nodes[:] = node_v_idxs.reshape(-1,1)
+
+  # Apply message updates from w to v
+  node_embs.scatter_reduce_(
+      dim=0, index=message_target_nodes,
+      src=messages, reduce='sum', include_self=True
+  )
+
+  # Normalize by number of neighbors
+  node_embs = node_embs / neighbor_counts
+
+  # Get reconstruction
+  node_reconstruction = predictor(node_embs)
+
+  # Compute reconstruction loss
+  loss = (nodes - node_reconstruction).square().sum(axis=1)
+  loss = loss.mean()
+  loss.backward()
+
+  # Gradient step over all parameters
+  update(layers)
+
+  if i % 1000 == 0:
+    print(f"Step {i:4d}: {loss.item():.3f}")
+```
+
+
+```{python}
+# Get the last reconstruction
+node_reconstruction = predictor(node_embs).detach()
+node_reconstruction.shape
+```
+
+```{python}
+#| fig-cap: "Comparing our reconstruction to the original sample"
+fig, axs = plt.subplots(1,2, figsize=(9,3))
+sns.heatmap(nodes, ax=axs[0]);
+axs[0].set_title("Original")
+sns.heatmap(node_reconstruction, ax=axs[1]);
+axs[1].set_title("Reconstruction");
+```
+
+As we can see the model is able to reproduice the input raesonably well! This is without any fancy optimization, using *only* one round of message passing and *only* addition as the message operator and *no* non-linearities. We actually have a linear model on our hands and it was able to reconstruc the input using the **connectivity information** from the graph. This is indeed a trite/trivial/contrived example but it gets the point across. We wanted to build a model that could use the structural information present in a graph and we were able to do so. 
+
+We can use our learnings here to start building more useful GNNs in the next part!
