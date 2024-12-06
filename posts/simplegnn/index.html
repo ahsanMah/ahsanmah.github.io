@@ -123,6 +123,20 @@ div.csl-indent {
     "search-label": "Search"
   }
 }</script>
+<script async="" src="https://www.googletagmanager.com/gtag/js?id=G-LMZYEG4JP1"></script>
+
+<script type="text/javascript">
+
+window.dataLayer = window.dataLayer || [];
+function gtag(){dataLayer.push(arguments);}
+gtag('js', new Date());
+ 
+  gtag('consent', 'default', {
+    'ad_storage': 'denied',
+    'analytics_storage': 'denied'
+  });
+gtag('config', 'G-LMZYEG4JP1', { 'anonymize_ip': true});
+</script>
 
   <script src="https://cdnjs.cloudflare.com/polyfill/v3/polyfill.min.js?features=es6"></script>
   <script src="https://cdn.jsdelivr.net/npm/mathjax@3/es5/tex-chtml-full.js" type="text/javascript"></script>
@@ -155,6 +169,9 @@ window.Quarto = {
 </script>
 
 <link rel="stylesheet" href="../../styles.css">
+<meta property="og:title" content="Building Graph Neural Networks from Scratch – Ahsan’s Blog">
+<meta property="og:description" content="">
+<meta property="og:site_name" content="Ahsan's Blog">
 </head>
 
 <body class="nav-fixed">
@@ -287,7 +304,7 @@ Note
 <section id="a-graph-in-the-wild" class="level3" data-number="1.1">
 <h3 data-number="1.1" class="anchored" data-anchor-id="a-graph-in-the-wild"><span class="header-section-number">1.1</span> A graph in the wild</h3>
 <p>We can download a public dataset from the <code>torch_geometric</code> package and view how the data is organized. This is the MUTAG which consists of graphs representing different molecules. We have labels associated with each molecule wwhich we can try to learn.</p>
-<div id="ed305ca6" class="cell" data-execution_count="1">
+<div id="ed305ca6" class="cell" data-execution_count="2">
 <details class="code-fold">
 <summary>Code to download the graph dataset</summary>
 <div class="sourceCode cell-code" id="cb1"><pre class="sourceCode python code-with-copy"><code class="sourceCode python"><span id="cb1-1"><a href="#cb1-1" aria-hidden="true" tabindex="-1"></a><span class="co"># %pip install torch_geometric -q</span></span>
@@ -332,7 +349,7 @@ Number of classes: 2</code></pre>
 <pre><code>Done!</code></pre>
 </div>
 </div>
-<div id="00ac0398" class="cell" data-execution_count="2">
+<div id="00ac0398" class="cell" data-execution_count="3">
 <details class="code-fold">
 <summary>We can grab a single graph sample and display its properties</summary>
 <div class="sourceCode cell-code" id="cb5"><pre class="sourceCode python code-with-copy"><code class="sourceCode python"><span id="cb5-1"><a href="#cb5-1" aria-hidden="true" tabindex="-1"></a>data <span class="op">=</span> dataset[<span class="dv">0</span>] <span class="co"># Get the first graph object.</span></span>
@@ -388,8 +405,8 @@ Is undirected: True</code></pre>
 </ul>
 <section id="learn-better-representations-of-your-input-via-embedding-layers" class="level3" data-number="2.1">
 <h3 data-number="2.1" class="anchored" data-anchor-id="learn-better-representations-of-your-input-via-embedding-layers"><span class="header-section-number">2.1</span> Learn better representations of your input via Embedding Layers</h3>
-<p>Transforming input features into <del>inscrutable</del> ‘rich’ representations is the bread and butter of deep learning. So we do the same. We can construct an embedding layer ourselves, using a weight matrix. You can think of this as an MLP / Feed Forward / <code>torch. nn.Linear</code> network with a single hidden layer and no bias. You could also just call it a linear transform but that doesn’t not as fancy.</p>
-<div id="1fbaefb4" class="cell" data-execution_count="3">
+<p>Transforming input features into <del>inscrutable</del> ‘rich’ representations is the bread and butter of deep learning. So we do the same. We can construct an embedding layer ourselves, using a weight matrix. You can think of this as an MLP / Feed Forward / <code>torch. nn.Linear</code> network with a single hidden layer and no bias. You could also just call it a linear transform but that doesn’t sound as fancy.</p>
+<div id="1fbaefb4" class="cell" data-execution_count="4">
 <div class="sourceCode cell-code" id="cb7"><pre class="sourceCode python code-with-copy"><code class="sourceCode python"><span id="cb7-1"><a href="#cb7-1" aria-hidden="true" tabindex="-1"></a><span class="kw">class</span> Embedder:</span>
 <span id="cb7-2"><a href="#cb7-2" aria-hidden="true" tabindex="-1"></a></span>
 <span id="cb7-3"><a href="#cb7-3" aria-hidden="true" tabindex="-1"></a>  <span class="kw">def</span> <span class="fu">__init__</span>(<span class="va">self</span>, n_input, n_hidden):</span>
@@ -406,7 +423,7 @@ Is undirected: True</code></pre>
 <span id="cb7-14"><a href="#cb7-14" aria-hidden="true" tabindex="-1"></a>node_embedder <span class="op">=</span> Embedder(n_input<span class="op">=</span><span class="dv">7</span>, n_hidden<span class="op">=</span>hidden_dims)</span>
 <span id="cb7-15"><a href="#cb7-15" aria-hidden="true" tabindex="-1"></a>edge_embedder <span class="op">=</span> Embedder(n_input<span class="op">=</span><span class="dv">4</span>, n_hidden<span class="op">=</span>hidden_dims)</span></code><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></pre></div>
 </div>
-<div id="5a8b99b8" class="cell" data-execution_count="4">
+<div id="5a8b99b8" class="cell" data-execution_count="5">
 <div class="sourceCode cell-code" id="cb8"><pre class="sourceCode python code-with-copy"><code class="sourceCode python"><span id="cb8-1"><a href="#cb8-1" aria-hidden="true" tabindex="-1"></a><span class="co"># Grab the nddes and edges from our graph sample</span></span>
 <span id="cb8-2"><a href="#cb8-2" aria-hidden="true" tabindex="-1"></a>nodes <span class="op">=</span> data.x</span>
 <span id="cb8-3"><a href="#cb8-3" aria-hidden="true" tabindex="-1"></a>edges <span class="op">=</span> data.edge_attr</span>
@@ -425,9 +442,9 @@ Is undirected: True</code></pre>
 <section id="combine-features-via-message-passing" class="level3" data-number="2.2">
 <h3 data-number="2.2" class="anchored" data-anchor-id="combine-features-via-message-passing"><span class="header-section-number">2.2</span> Combine features via Message Passing</h3>
 <p>Message passing layers are more conceptual than concrete layers like Attention or Convolution Kernels. In the context of GNNs, this concept was popularized by (Gilmer et.al)[https://arxiv.org/abs/1704.01212] in the Message Passing Neural Networks (MPNN) paper. The idea is to use the graph connections <em>in some manner</em> to aggregate information from neighbours.</p>
-<p>The main idea is to take an edge $e: v w $ and pass the message from the target node <span class="math inline">\(w\)</span> to the source node <span class="math inline">\(v\)</span>. We can also use information from the edge itself.</p>
+<p>The main idea is to take an edge <span class="math inline">\(e: v \rightarrow w\)</span> and pass the message from the target node <span class="math inline">\(w\)</span> to the source node <span class="math inline">\(v\)</span>. We can also use information from the edge itself.</p>
 <p>Under this lens, we can make the simplest form of message passing by adding information from neighbors and calling it a day.</p>
-<div id="16a2fb99" class="cell" data-execution_count="5">
+<div id="16a2fb99" class="cell" data-execution_count="6">
 <div class="sourceCode cell-code" id="cb10"><pre class="sourceCode python code-with-copy"><code class="sourceCode python"><span id="cb10-1"><a href="#cb10-1" aria-hidden="true" tabindex="-1"></a><span class="kw">class</span> SimpleMessagePasser:</span>
 <span id="cb10-2"><a href="#cb10-2" aria-hidden="true" tabindex="-1"></a></span>
 <span id="cb10-3"><a href="#cb10-3" aria-hidden="true" tabindex="-1"></a>  <span class="kw">def</span> <span class="fu">__init__</span>(<span class="va">self</span>):</span>
@@ -446,7 +463,7 @@ Is undirected: True</code></pre>
 <section id="pass-a-single-message-along-an-edge" class="level4" data-number="2.2.1">
 <h4 data-number="2.2.1" class="anchored" data-anchor-id="pass-a-single-message-along-an-edge"><span class="header-section-number">2.2.1</span> Pass a single message along an edge</h4>
 <p>To see a message creation in action, we can grab an edge from our graph ancd compute embeddings for all entities involved.</p>
-<div id="057ba7e9" class="cell" data-execution_count="6">
+<div id="057ba7e9" class="cell" data-execution_count="7">
 <div class="sourceCode cell-code" id="cb11"><pre class="sourceCode python code-with-copy"><code class="sourceCode python"><span id="cb11-1"><a href="#cb11-1" aria-hidden="true" tabindex="-1"></a><span class="co"># Pick lucky number 13</span></span>
 <span id="cb11-2"><a href="#cb11-2" aria-hidden="true" tabindex="-1"></a>edge_idx <span class="op">=</span> <span class="dv">13</span></span>
 <span id="cb11-3"><a href="#cb11-3" aria-hidden="true" tabindex="-1"></a></span>
@@ -464,7 +481,7 @@ Is undirected: True</code></pre>
 </div>
 </div>
 <p>Pass messages from w to v using e</p>
-<div id="3cdceca5" class="cell" data-execution_count="7">
+<div id="3cdceca5" class="cell" data-execution_count="8">
 <div class="sourceCode cell-code" id="cb13"><pre class="sourceCode python code-with-copy"><code class="sourceCode python"><span id="cb13-1"><a href="#cb13-1" aria-hidden="true" tabindex="-1"></a>messenger(v, w, e).shape</span></code><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></pre></div>
 <div class="cell-output cell-output-display" data-execution_count="7">
 <pre><code>torch.Size([5])</code></pre>
@@ -474,7 +491,7 @@ Is undirected: True</code></pre>
 <section id="pass-multiple-messages-across-the-entire-graph" class="level4" data-number="2.2.2">
 <h4 data-number="2.2.2" class="anchored" data-anchor-id="pass-multiple-messages-across-the-entire-graph"><span class="header-section-number">2.2.2</span> Pass multiple messages across the entire graph</h4>
 <p>Of course a graph has many edges and thus many messages to pass! Using a Tensor library like <code>torch</code> enables us to use clever indexing mechanisms to grab all the messages in one invocation.</p>
-<div id="c4134f77" class="cell" data-execution_count="8">
+<div id="c4134f77" class="cell" data-execution_count="9">
 <div class="sourceCode cell-code" id="cb15"><pre class="sourceCode python code-with-copy"><code class="sourceCode python"><span id="cb15-1"><a href="#cb15-1" aria-hidden="true" tabindex="-1"></a><span class="co"># Get indices for *all* nodes with edges</span></span>
 <span id="cb15-2"><a href="#cb15-2" aria-hidden="true" tabindex="-1"></a>node_v_idxs, node_w_idxs <span class="op">=</span> edge_list[:, <span class="dv">0</span>], edge_list[:, <span class="dv">1</span>]</span>
 <span id="cb15-3"><a href="#cb15-3" aria-hidden="true" tabindex="-1"></a>v, w <span class="op">=</span> node_embs[node_v_idxs], node_embs[node_w_idxs]</span>
@@ -490,7 +507,7 @@ Is undirected: True</code></pre>
 </div>
 </div>
 <p>If we take a look at all the source nodes, we see that they show up multiple times. This is because they have multiple edges.</p>
-<div id="738c3d43" class="cell" data-execution_count="9">
+<div id="738c3d43" class="cell" data-execution_count="10">
 <div class="sourceCode cell-code" id="cb17"><pre class="sourceCode python code-with-copy"><code class="sourceCode python"><span id="cb17-1"><a href="#cb17-1" aria-hidden="true" tabindex="-1"></a>node_v_idxs</span></code><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></pre></div>
 <div class="cell-output cell-output-display" data-execution_count="9">
 <pre><code>tensor([ 0,  0,  1,  1,  2,  2,  3,  3,  3,  4,  4,  4,  5,  5,  6,  6,  7,  7,
@@ -499,7 +516,7 @@ Is undirected: True</code></pre>
 </div>
 </div>
 <p>You can do a quick and dirty count of neighbours for each node by constructing an adjacency matrix like below.</p>
-<div id="ade607d6" class="cell" data-execution_count="10">
+<div id="ade607d6" class="cell" data-execution_count="11">
 <div class="sourceCode cell-code" id="cb19"><pre class="sourceCode python code-with-copy"><code class="sourceCode python"><span id="cb19-1"><a href="#cb19-1" aria-hidden="true" tabindex="-1"></a>A <span class="op">=</span> torch.zeros(data.num_nodes, data.num_nodes)</span>
 <span id="cb19-2"><a href="#cb19-2" aria-hidden="true" tabindex="-1"></a>n1, n2 <span class="op">=</span> data.edge_index</span>
 <span id="cb19-3"><a href="#cb19-3" aria-hidden="true" tabindex="-1"></a>A[n1, n2] <span class="op">=</span> <span class="dv">1</span></span>
@@ -510,7 +527,7 @@ Is undirected: True</code></pre>
 </div>
 </div>
 <p>We thus need to combine the messages or aggregate them in some manner. In deep learning lingo, you can also think of this as ‘pooling’ information from the neighboring nodes. We can also print out embeddings for the last three nodes just to see.</p>
-<div id="bc1d20a8" class="cell" data-execution_count="11">
+<div id="bc1d20a8" class="cell" data-execution_count="12">
 <div class="sourceCode cell-code" id="cb21"><pre class="sourceCode python code-with-copy"><code class="sourceCode python"><span id="cb21-1"><a href="#cb21-1" aria-hidden="true" tabindex="-1"></a><span class="bu">print</span>(<span class="st">"Node embeddings before message passing:"</span>)</span>
 <span id="cb21-2"><a href="#cb21-2" aria-hidden="true" tabindex="-1"></a><span class="bu">print</span>(node_embs[<span class="op">-</span><span class="dv">3</span>:])</span>
 <span id="cb21-3"><a href="#cb21-3" aria-hidden="true" tabindex="-1"></a></span>
@@ -561,7 +578,7 @@ Note
 <section id="brief-aside-loops-can-be-slow---use-fancier-methods-instead" class="level4" data-number="2.2.3">
 <h4 data-number="2.2.3" class="anchored" data-anchor-id="brief-aside-loops-can-be-slow---use-fancier-methods-instead"><span class="header-section-number">2.2.3</span> Brief Aside: Loops can be slow - use fancier methods instead</h4>
 <p>The above method to aggregate messages via iterating over the adjacency list <em>will</em> work but in practice, more efficient methods are used. In particular, Tensor operation libraries like PyTorch have built in methods such as <code>scatter_reduce</code> which will perform the update operations for you, while keeping track of gradients. From the torch documentation, we have the example below. The function allows us to update <code>input</code> (in-place) at position <code>index</code> by using the values from <code>src</code>.</p>
-<div id="7200b002" class="cell" data-execution_count="12">
+<div id="7200b002" class="cell" data-execution_count="13">
 <div class="sourceCode cell-code" id="cb23"><pre class="sourceCode python code-with-copy"><code class="sourceCode python"><span id="cb23-1"><a href="#cb23-1" aria-hidden="true" tabindex="-1"></a>src <span class="op">=</span> torch.tensor(  [<span class="fl">1.</span>, <span class="fl">2.</span>, <span class="fl">3.</span>, <span class="fl">4.</span>, <span class="fl">5.</span>, <span class="fl">6.</span>]).requires_grad_(<span class="va">True</span>)</span>
 <span id="cb23-2"><a href="#cb23-2" aria-hidden="true" tabindex="-1"></a>index <span class="op">=</span> torch.tensor([<span class="dv">0</span>, <span class="dv">1</span>, <span class="dv">0</span>, <span class="dv">1</span>, <span class="dv">2</span>, <span class="dv">1</span>])</span>
 <span id="cb23-3"><a href="#cb23-3" aria-hidden="true" tabindex="-1"></a><span class="bu">input</span> <span class="op">=</span> torch.tensor([<span class="fl">1.</span>, <span class="fl">2.</span>, <span class="fl">3.</span>, <span class="fl">4.</span>])</span>
@@ -571,7 +588,7 @@ Note
 </div>
 </div>
 <p>So at position 0 of <code>input</code>, we have the sum of 1 (from <code>input</code> itself) + 1 (from <code>src[0]</code>) + 3 (from `src[2]). We can even compute gradients like below.</p>
-<div id="79c6afa4" class="cell" data-execution_count="13">
+<div id="79c6afa4" class="cell" data-execution_count="14">
 <div class="sourceCode cell-code" id="cb25"><pre class="sourceCode python code-with-copy"><code class="sourceCode python"><span id="cb25-1"><a href="#cb25-1" aria-hidden="true" tabindex="-1"></a><span class="bu">input</span>[<span class="dv">0</span>].backward()</span>
 <span id="cb25-2"><a href="#cb25-2" aria-hidden="true" tabindex="-1"></a>src.grad <span class="co"># Which elements were used to update input 0?</span></span></code><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></pre></div>
 <div class="cell-output cell-output-display" data-execution_count="13">
@@ -579,7 +596,7 @@ Note
 </div>
 </div>
 <p>To make the computation even clearer, we can step through the process of grabbing the appropriate indices from the edge list and applying the updates via <code>scatter_reduce_</code>.</p>
-<div id="684ee2bb" class="cell" data-execution_count="14">
+<div id="684ee2bb" class="cell" data-execution_count="15">
 <div class="sourceCode cell-code" id="cb27"><pre class="sourceCode python code-with-copy"><code class="sourceCode python"><span id="cb27-1"><a href="#cb27-1" aria-hidden="true" tabindex="-1"></a><span class="co"># We are building the index tensor that will define which node to update</span></span>
 <span id="cb27-2"><a href="#cb27-2" aria-hidden="true" tabindex="-1"></a>message_target_nodes <span class="op">=</span> torch.zeros(num_edges, num_edge_features, dtype<span class="op">=</span>torch.<span class="bu">long</span>)</span>
 <span id="cb27-3"><a href="#cb27-3" aria-hidden="true" tabindex="-1"></a></span>
@@ -611,7 +628,7 @@ Warning
 <p>Note that we would ideally only need a message-index tensor of shape (num_edges, 1). However, the torch backprop only works when index exactly matches the message shape.</p>
 </div>
 </div>
-<div id="3f61687a" class="cell" data-execution_count="15">
+<div id="3f61687a" class="cell" data-execution_count="16">
 <div class="sourceCode cell-code" id="cb29"><pre class="sourceCode python code-with-copy"><code class="sourceCode python"><span id="cb29-1"><a href="#cb29-1" aria-hidden="true" tabindex="-1"></a>node_embs <span class="op">=</span> node_embedder(nodes)</span>
 <span id="cb29-2"><a href="#cb29-2" aria-hidden="true" tabindex="-1"></a>node_embs.scatter_reduce_(dim<span class="op">=</span><span class="dv">0</span>, index<span class="op">=</span>message_target_nodes, src<span class="op">=</span>messages,</span>
 <span id="cb29-3"><a href="#cb29-3" aria-hidden="true" tabindex="-1"></a>                           <span class="bu">reduce</span><span class="op">=</span><span class="st">'sum'</span>,include_self<span class="op">=</span><span class="va">True</span>)</span>
@@ -628,7 +645,7 @@ Warning
 <section id="read-out-the-learned-graph-embeddings" class="level3" data-number="2.3">
 <h3 data-number="2.3" class="anchored" data-anchor-id="read-out-the-learned-graph-embeddings"><span class="header-section-number">2.3</span> “Read out” the learned graph embeddings</h3>
 <p>The last block of our humble GNN will be a prediction layer. This will be another transformation to spit out the desired output of the model. In the case of classification, this layer will output the predictions for each class. This is often done <em>per node</em> and then aggregated to compute a <em>graph-level</em> prediction.</p>
-<div id="530b9de0" class="cell" data-execution_count="16">
+<div id="530b9de0" class="cell" data-execution_count="17">
 <div class="sourceCode cell-code" id="cb31"><pre class="sourceCode python code-with-copy"><code class="sourceCode python"><span id="cb31-1"><a href="#cb31-1" aria-hidden="true" tabindex="-1"></a><span class="co"># Graph-wise output to predict two classes</span></span>
 <span id="cb31-2"><a href="#cb31-2" aria-hidden="true" tabindex="-1"></a>predictor <span class="op">=</span> Embedder(hidden_dims, <span class="dv">2</span>)</span>
 <span id="cb31-3"><a href="#cb31-3" aria-hidden="true" tabindex="-1"></a>graph_feature <span class="op">=</span> predictor(node_embs)</span>
@@ -639,11 +656,11 @@ Warning
 </div>
 </div>
 <p>Check to see if we can backprop through the whole mechanism</p>
-<div id="436f4cb1" class="cell" data-execution_count="17">
+<div id="436f4cb1" class="cell" data-execution_count="18">
 <div class="sourceCode cell-code" id="cb33"><pre class="sourceCode python code-with-copy"><code class="sourceCode python"><span id="cb33-1"><a href="#cb33-1" aria-hidden="true" tabindex="-1"></a>output_logits.<span class="bu">sum</span>().backward()</span></code><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></pre></div>
 </div>
 <p>We can see that the gradients exist for our edge embedding layer.</p>
-<div id="bb8cd1cf" class="cell" data-execution_count="18">
+<div id="bb8cd1cf" class="cell" data-execution_count="19">
 <div class="sourceCode cell-code" id="cb34"><pre class="sourceCode python code-with-copy"><code class="sourceCode python"><span id="cb34-1"><a href="#cb34-1" aria-hidden="true" tabindex="-1"></a>edge_embedder.W.grad</span></code><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></pre></div>
 <div class="cell-output cell-output-display" data-execution_count="18">
 <pre><code>tensor([[ 0.731,  9.453, -0.921, 36.528,  7.506],
@@ -658,7 +675,7 @@ Warning
 <section id="learn-to-reconstruct-an-input" class="level2" data-number="3">
 <h2 data-number="3" class="anchored" data-anchor-id="learn-to-reconstruct-an-input"><span class="header-section-number">3</span> Learn to reconstruct an input</h2>
 <p>One of the best methods to test your deep learning model is to check and see whether it can “overfit” to a small batch or even a single sample. We have all the elements for our GNN. Now we can train it to learn to reconstruct the sample graph we have been playing around with.</p>
-<div id="25076e04" class="cell" data-execution_count="19">
+<div id="25076e04" class="cell" data-execution_count="20">
 <details class="code-fold">
 <summary>Reinitialize our GNN layers and define functions to perform gradient descent</summary>
 <div class="sourceCode cell-code" id="cb36"><pre class="sourceCode python code-with-copy"><code class="sourceCode python"><span id="cb36-1"><a href="#cb36-1" aria-hidden="true" tabindex="-1"></a>rand_generator.manual_seed(<span class="dv">42</span>)</span>
@@ -690,7 +707,7 @@ Warning
 <span id="cb36-27"><a href="#cb36-27" aria-hidden="true" tabindex="-1"></a>    l.W.add_(l.W.grad, alpha<span class="op">=-</span>learning_rate)</span></code><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></pre></div>
 </details>
 </div>
-<div id="18b30494" class="cell" data-execution_count="20">
+<div id="18b30494" class="cell" data-execution_count="21">
 <div class="sourceCode cell-code" id="cb37"><pre class="sourceCode python code-with-copy"><code class="sourceCode python"><span id="cb37-1"><a href="#cb37-1" aria-hidden="true" tabindex="-1"></a><span class="co"># Get the entities of the graph</span></span>
 <span id="cb37-2"><a href="#cb37-2" aria-hidden="true" tabindex="-1"></a>nodes <span class="op">=</span> data.x</span>
 <span id="cb37-3"><a href="#cb37-3" aria-hidden="true" tabindex="-1"></a>edges <span class="op">=</span> data.edge_attr</span>
@@ -750,7 +767,7 @@ Step 8000: 0.019
 Step 9000: 0.015</code></pre>
 </div>
 </div>
-<div id="7393f023" class="cell" data-execution_count="21">
+<div id="7393f023" class="cell" data-execution_count="22">
 <div class="sourceCode cell-code" id="cb39"><pre class="sourceCode python code-with-copy"><code class="sourceCode python"><span id="cb39-1"><a href="#cb39-1" aria-hidden="true" tabindex="-1"></a><span class="co"># Get the last reconstruction</span></span>
 <span id="cb39-2"><a href="#cb39-2" aria-hidden="true" tabindex="-1"></a>node_reconstruction <span class="op">=</span> predictor(node_embs).detach()</span>
 <span id="cb39-3"><a href="#cb39-3" aria-hidden="true" tabindex="-1"></a>node_reconstruction.shape</span></code><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></pre></div>
@@ -758,7 +775,7 @@ Step 9000: 0.015</code></pre>
 <pre><code>torch.Size([17, 7])</code></pre>
 </div>
 </div>
-<div id="41b34ecb" class="cell" data-execution_count="22">
+<div id="41b34ecb" class="cell" data-execution_count="23">
 <div class="sourceCode cell-code" id="cb41"><pre class="sourceCode python code-with-copy"><code class="sourceCode python"><span id="cb41-1"><a href="#cb41-1" aria-hidden="true" tabindex="-1"></a>fig, axs <span class="op">=</span> plt.subplots(<span class="dv">1</span>,<span class="dv">2</span>, figsize<span class="op">=</span>(<span class="dv">9</span>,<span class="dv">3</span>))</span>
 <span id="cb41-2"><a href="#cb41-2" aria-hidden="true" tabindex="-1"></a>sns.heatmap(nodes, ax<span class="op">=</span>axs[<span class="dv">0</span>])<span class="op">;</span></span>
 <span id="cb41-3"><a href="#cb41-3" aria-hidden="true" tabindex="-1"></a>axs[<span class="dv">0</span>].set_title(<span class="st">"Original"</span>)</span>
@@ -773,7 +790,7 @@ Step 9000: 0.015</code></pre>
 </div>
 </div>
 </div>
-<p>As we can see the model is able to reproduice the input raesonably well! This is without any fancy optimization, using <em>only</em> one round of message passing and <em>only</em> addition as the message operator and <em>no</em> non-linearities. We actually have a linear model on our hands and it was able to reconstruc the input using the <strong>connectivity information</strong> from the graph. This is indeed a trite/trivial/contrived example but it gets the point across. We wanted to build a model that could use the structural information present in a graph and we were able to do so.</p>
+<p>As we can see the model is able to reproduice the input raesonably well! This is without any fancy optimization, using <em>only</em> one round of message passing and <em>only</em> addition as the message operator and <em>no</em> non-linearities. We actually have a linear model on our hands and it was able to reconstruct the input using the <strong>connectivity information</strong> from the graph. This is indeed a trite/trivial/contrived example but it gets the point across. We wanted to build a model that could use the structural information present in a graph and we were able to do so.</p>
 <p>We can use our learnings here to start building more useful GNNs in the next part!</p>
 
 
