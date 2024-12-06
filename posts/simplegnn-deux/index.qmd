@@ -1,0 +1,345 @@
+---
+draft: false
+title: "Building Graph Neural Networks from Scratch - Part II"
+author: "Ahsan Mahmood"
+date: 11/15/2024
+# bibliography: references.bib
+date-format: long
+toc: true
+number-sections: true
+highlight-style: pygments
+format: html
+theme:
+  light: journal 
+  dark: darkly
+execute: 
+  cache: true
+jupyter: python3
+---
+
+In the previous post we built a GNN to reconstruct a single graph sample. In this part, we will consolidate our model into proper classes and build towards a graph classification network.
+
+```{python}
+#| code-fold: true
+#| code-summary: We load the graph dataset as before.
+# %pip install torch_geometric -q
+import torch
+import torch_geometric
+import torch.nn as nn
+import seaborn as sns
+import torch.nn.functional as F
+from matplotlib import pyplot as plt
+
+
+DATASET_PATH = "/tmp/data"
+
+# Random number generator for later use
+rand_generator = torch.Generator()
+rand_generator.manual_seed(42)
+torch.set_printoptions(precision=3)
+
+dataset = torch_geometric.datasets.TUDataset(
+root=DATASET_PATH, name="MUTAG",
+use_edge_attr=True, use_node_attr=True
+)
+```
+
+## Sending informative messages
+
+We will first create a message passing layer. Note that in the previous part we simply summed neighbouring features as a messaging scheme. This is far from expressive. In Message Passing Neural Nets (MPNNs), we ideally want to aggregate messages after a feature transformation: $m_v = \sum_i f(w_i)$. That is, the message $m_v$ which will be sent to node $v$ should be "collected" from all its neighboring nodes $w_i$. We can also think of our previous messaging scheme as using the identity function: $f(w) = w$.
+```{python}
+class MessagePasser(torch.nn.Module):
+
+  def __init__(self, node_features, edge_features, use_identities=False):
+    super().__init__()
+    
+    if use_identities:
+      self.f_v = nn.Identity()
+      self.f_w = nn.Identity()
+      self.f_e = nn.Identity()
+    else:
+      self.f_v = nn.Linear(node_features, node_features)
+      self.f_w = nn.Linear(node_features, node_features)
+      self.f_e = nn.Linear(edge_features, node_features)
+
+  def __call__(self, v, w, e_vw):
+    '''
+    Pass information TO v FROM w, additionally using edge information
+    '''
+    h = self.f_v(v) + self.f_w(w) + self.f_e(e_vw)
+    
+    return h
+```
+
+## Implementing a souped up SimpleGNN
+
+Let's use this new `MessagePasser` in our `SimpleGNN` model below. I have also included some additional modeling mechanisms to improve learning. 
+
+First, note that we have a `for loop` in our forward function! This is my attempt at multiple message passing iterations. Ideally you would want each iteration to utilize additional layers, going ever deeper in the network. Alternatively you can reuse the existing layers for each iteration and call it "sharing" parameters across the network. At least that is my understanding.
+
+Second, we introduce the concept of a "global" node. This will be a special node which will be connected to all other nodes (and edges) in the graph. As every node will get a message from the global node, it allows us to collect information from distal nodes in the graph in a relatively few message passing iterations.
+```{python}
+class SimpleGNN(torch.nn.Module):
+
+    def __init__(self, input_node_features, input_edge_features, output_node_features, hidden_dims):
+        super().__init__()
+        torch.manual_seed(42)
+        self.node_featurizer = nn.Linear(input_node_features, hidden_dims)
+        self.edge_featurizer = nn.Linear(input_edge_features, hidden_dims)
+        self.messenger = MessagePasser(node_features=hidden_dims, edge_features=hidden_dims)
+        self.readout = nn.Linear(hidden_dims, output_node_features)
+    
+    def get_degrees(self, num_nodes, edge_list):
+        counts = torch.ones(num_nodes, 1)
+        idxs = edge_list[:,1].reshape(-1, 1)
+        ones = torch.ones(len(idxs), 1)
+        counts.scatter_add_(dim=0, index=idxs, src=ones)
+        return counts
+
+    def forward(self, nodes, edges, edge_list, message_passing_iters=1):
+        
+        neighbor_counts = self.get_degrees(len(nodes), edge_list)
+
+        # Get embeddings
+        node_embs = self.node_featurizer(nodes)
+        edge_embs = self.edge_featurizer(edges)
+
+        # Special nodes and edges
+        global_node = torch.ones(len(nodes),input_node_features, requires_grad=False)
+        global_edge = torch.ones(len(nodes), input_edge_features, requires_grad=False)
+
+        global_node_embedding = self.node_featurizer(global_node)
+        global_edge_embedding = self.edge_featurizer(global_edge)
+        
+        for _ in range(message_passing_iters):
+            # Update global / 'master' node
+            global_edge_embedding = self.messenger(node_embs, global_node_embedding, global_edge_embedding)
+            global_node_embedding = self.messenger(global_node_embedding, node_embs, global_edge_embedding)
+
+            # Get edge list and compute messages
+            node_v_idxs, node_w_idxs = edge_list[:,0], edge_list[:,1]
+            v_embs, w_embs = node_embs[node_v_idxs], node_embs[node_w_idxs]
+            messages = self.messenger(v_embs, w_embs, edge_embs)
+
+            # master to nodes
+            node_embs = node_embs + global_node_embedding
+
+            # Get target node indices from edge list
+            num_edges, num_message_features = messages.shape
+            message_target_nodes = torch.zeros(num_edges, num_message_features,
+                                                dtype=torch.long, requires_grad=False)
+            message_target_nodes[:] = node_v_idxs.reshape(-1,1)
+
+            # Apply message updates from w to v
+            # i.e. edges to node
+            node_embs = torch.scatter_reduce(node_embs,
+                dim=0, index=message_target_nodes,
+                src=messages, reduce='sum', include_self=True
+            )
+
+            # Normalize by number of neighbors
+            node_embs = node_embs / neighbor_counts
+
+        # Get graph outputs
+        graph_output = self.readout(node_embs)
+
+        return graph_output
+```
+
+
+Below, we train our model to reconstruct the input as in Part 1. Note that we are using the same number of hidden dimensions as before, but iterating for 2000 iterations instead of 10,000. The learning rate is also set to `1e-3` instead of `1e-2`.
+
+```{python}
+#| code-summary: We can use the same mean squared error loss as before but use a much better optimizer (AdamW) to help with training
+def mse_step_fn(nodes, edges, edge_list, gnn, opt, message_passing_iters=1):
+  opt.zero_grad()
+  
+  # Get reconstruction
+  node_reconstruction = gnn(nodes, edges, edge_list, message_passing_iters)
+
+  # Compute reconstruction loss
+  loss = (nodes - node_reconstruction).square().sum(axis=1)
+  loss = loss.mean()
+  loss.backward()
+  opt.step()
+
+  return loss.item()
+
+hidden_dims = 3
+input_node_features = 7
+input_edge_features = 4
+
+sgnn = SimpleGNN(input_node_features, input_edge_features, input_node_features, hidden_dims)
+opt = torch.optim.AdamW(sgnn.parameters(), lr=1e-3)
+sgnn
+```
+
+
+```{python}
+#| code-fold: true
+#| code-summary: We train our updated model with a reconstruction loss as before.
+sample = dataset[0]
+nodes = sample.x
+edges = sample.edge_attr
+edge_list = sample.edge_index.T
+
+for i in range(2_001):
+    
+    loss = mse_step_fn(nodes, edges, edge_list, sgnn, opt, message_passing_iters=1)
+    
+    if i % 500 == 0:
+        print(f"Step {i:4d}: {loss:.3f}")
+
+node_reconstruction = sgnn(nodes, edges, edge_list).detach()
+fig, axs = plt.subplots(1,2, figsize=(12,4))
+sns.heatmap(nodes, ax=axs[0]);
+axs[0].set_title("Original")
+sns.heatmap(node_reconstruction, ax=axs[1]);
+axs[1].set_title("Reconstruction");
+```
+
+Note the near perfect reconstruction at a fifth of the time steps as before! As we only perform a single round of message passing, this implies that  we got phenomenal gains from using global embeddings and transformation functions alone! Note that our model is still exclusively linear transformations. We have yet to use `ReLU` or some other fancy activation function.
+
+
+## Building a Classifier
+
+We can utilize our newly created architecture for building a classifier as well. As long as we have a mechanism of pooling the final embedding of the graph into logits (log-probabilities per class). Below, I sum up the embeddings of all nodes in the graph into produce a 2-dimensional output representing the logits. You may call this global average (sum?) pooling if you wish. I assume that the each node contains all the necessary information from the edges after the final layer in the network. 
+
+```{python}
+def bce_loss(logits, targets):
+    return F.binary_cross_entropy_with_logits(logits, F.one_hot(targets, num_classes=2).float())
+
+def classification_step_fn(graph_sample, gnn, opt, message_passing_iters=1, train=True):
+  nodes, edges = graph_sample.x, graph_sample.edge_attr
+  edge_list = graph_sample.edge_index.T
+  gt_label =  graph_sample.y
+
+  # Get graph readout - per node
+  pred_per_node = gnn(nodes, edges, edge_list, message_passing_iters)
+
+  # Pool the embeddings from all nodes
+  graph_pred = pred_per_node.sum(dim=0, keepdim=True)
+
+  # Compute cross entropy loss
+  loss = bce_loss(graph_pred, gt_label)
+
+  if train:
+    opt.zero_grad()
+    loss.backward()
+    opt.step()
+
+  return loss.item()
+```
+
+```{python}
+#| code-fold: true
+#| code-summary: The dataset can be split into train and test sets using an 80/20 split
+shuffle_idx = torch.randperm(n=len(dataset), generator=rand_generator)
+test_num_samples = int(0.2 * len(dataset))
+test_set = dataset[shuffle_idx[:test_num_samples]]
+train_set = dataset[shuffle_idx[test_num_samples:]]
+```
+
+The network will be trained in a similar manner as our regression model. I included a weight decay term to the optimizer to add a tiny bit of regularization.
+
+```{python}
+sgnn = SimpleGNN(input_node_features, input_edge_features, output_node_features=2, hidden_dims=32)
+opt = torch.optim.AdamW(sgnn.parameters(), lr=3e-4, weight_decay=1e-5)
+
+for i in range(10_000):
+    idx = i % len(train_set)
+    graph_sample = train_set[idx]
+    loss = classification_step_fn(graph_sample, sgnn, opt, message_passing_iters=1)
+    
+    if i % 1000 == 0:
+        with torch.no_grad():
+            val_loss = 0.0
+            for x in test_set:
+              val_loss += classification_step_fn(x, sgnn, opt, train=False)
+            val_loss /= len(test_set)
+            print(f"Iter: {i:>4} - Train Loss: {loss:.3f} - Val Loss {val_loss:.3f}")
+```
+
+Our prediction function looks similar to our training step, except that we use a final argmax to retrieve the class prediction.
+
+```{python}
+@torch.no_grad()
+def pred_step(graph_sample, gnn, message_passing_iters=1):
+  gnn.eval()
+  nodes, edges = graph_sample.x, graph_sample.edge_attr
+  edge_list = graph_sample.edge_index.T
+  pred_per_node = gnn(nodes, edges, edge_list, message_passing_iters)
+  graph_pred_logits = pred_per_node.sum(dim=0, keepdim=True)
+  return graph_pred_logits.argmax()
+```
+
+
+```{python}
+#| code-fold: true
+#| code-summary: We can print out the classification performance of this network.
+from functools import partial
+from sklearn.metrics import classification_report
+
+def compute_classification_report(pred_fn, test_set, print_out=True):
+  preds = []
+  labels = []
+
+  for sample in test_set:
+    gt = sample.y
+    p = pred_fn(sample)
+    preds.append(p)
+    labels.append(gt)
+    
+  preds = torch.stack(preds)
+  labels = torch.stack(labels)
+  if print_out:
+    print(classification_report(labels, preds))
+  
+  return classification_report(labels, preds, output_dict=True)
+
+# Create a prediction function using our trained gnn
+pred_fn = partial(pred_step, gnn=sgnn)
+compute_classification_report(pred_fn, test_set);
+```
+
+Not bad! Our naive implementation already gets us to reasonable accuracies with relatively little tuning. One would play around with the hyperparamters such as number of layers, size of hidden dimensions, learning rate, batch size etc.
+
+::: {.callout-note}
+Batch size..? The astute reader would have noticed that we have been training with a `batch_size=1`! This is because incorporating multiple batches requires us to carefully mask the input/output. Masking prevents information from leaking across samples and ensures for example that the output of index 13 only used the information of graph #13 and no one else. Since masking can be tricky, I have avoided it for now and left it as a post for the future. Or a task for the reader :)
+:::
+
+## Do multiple messages passes help?
+
+Lastly, I wanted to experiment with the effectivenes of multiple message passing iterations. Given our current setup, we can compare the performance easily.
+
+```{python}
+#| code-fold: true
+#| code-summary: We will train a new model for different values of `message_passing_iters` and gather the results. To save on time, I only trained each model for 5k iterations at `lr=1e-3`. All other hyperparamters are kept constant.
+def single_train_run(message_passing_iters=1):
+    sgnn = SimpleGNN(input_node_features, input_edge_features,
+                    output_node_features=2, hidden_dims=32)
+    opt = torch.optim.AdamW(sgnn.parameters(), lr=1e-3, weight_decay=1e-5)
+
+    step_fn = partial(classification_step_fn, opt=opt,
+                      message_passing_iters=message_passing_iters)
+    for i in range(5_000):
+        idx = i % len(train_set)
+        graph_sample = train_set[idx]
+        loss = step_fn(graph_sample, sgnn)
+
+    pred_fn = partial(pred_step, gnn=sgnn, message_passing_iters=message_passing_iters)
+    return compute_classification_report(pred_fn, test_set, print_out=False)
+
+perf = []
+for i in range(1, 11, 1):
+    metrics = single_train_run(message_passing_iters=i)
+    perf.append(metrics['weighted avg']['f1-score'])
+
+plt.bar(range(1, 11, 1), perf)
+plt.ylim(0.5, 1.0)
+plt.ylabel("F1-Score")
+plt.xlabel("Number of Iterations")
+sns.despine()
+```
+
+In the barplot above, I am plotting the F1 score, which measures the average predicttion performance of a model. It does seem that multiple rounds of message passing can help! However, its not clear which number would work well in practice. It probably depends on the dataset itself and whether incorporating global structure is helpful for the task. This experiment was a quick and dirty evaluation of performance. We would need to systematically perform multiple rounds of training and verify that number of iterations is indeed not improving performance. Nevertheless, we were able to squeeze a lot of juice from our humble mostly-linear-sometimes-graph-neural-network!
