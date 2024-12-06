@@ -16,7 +16,7 @@ execute:
 jupyter: python3
 ---
 
-This is my attempt to understand Graph Neural Nets (GNNs), implementing the building blocks as I go. I have heavily relied on the seminal Neural Message Passing paper[@pmlr-v70-gilmer17a] and the excellent Distill post on GNNs[@sanchez-lengeling2021a] as my sources and I urge readers to look at them.
+This is my attempt to understand Graph Neural Nets (GNNs), implementing the building blocks as I go. I have heavily relied on the seminal Neural Message Passing paper [@pmlr-v70-gilmer17a] and the excellent Distill post on GNNs [@sanchez-lengeling2021a] as my sources and I urge readers to look at them.
 
 ## What is a graph anyway?
 
@@ -116,7 +116,7 @@ The basic building blocks of a graph neural network include:
 
 ### Learn better representations of your input via Embedding Layers
 
-Transforming input features into ~~inscrutable~~ 'rich' representations is the bread and butter of deep learning. So we do the same. We can construct an embedding layer ourselves, using a weight matrix. You can think of this as an MLP / Feed Forward / `torch. nn.Linear` network with a single hidden layer and no bias. You could also just call it a linear transform but that doesn't not as fancy.
+Transforming input features into ~~inscrutable~~ 'rich' representations is the bread and butter of deep learning. So we do the same. We can construct an embedding layer ourselves, using a weight matrix. You can think of this as an MLP / Feed Forward / `torch. nn.Linear` network with a single hidden layer and no bias. You could also just call it a linear transform but that doesn't sound as fancy.
 
 ```{python}
 class Embedder:
@@ -152,9 +152,9 @@ node_embs.shape, edge_embs.shape
 
 ### Combine features via Message Passing
 
-Message passing layers are more conceptual than concrete layers like Attention or Convolution Kernels. In the context of GNNs, this concept was popularized by (Gilmer et.al)\[https://arxiv.org/abs/1704.01212\] in the Message Passing Neural Networks (MPNN) paper. The idea is to use the graph connections *in some manner* to aggregate information from neighbours.
+Message passing layers are more conceptual than concrete layers like Attention or Convolution Kernels. In the context of GNNs, this concept was popularized by [@pmlr-v70-gilmer17a] in the Message Passing Neural Networks (MPNN) paper. The idea is to use the graph connections *in some manner* to aggregate information from neighbours.
 
-The main idea is to take an edge \$e: v \rightarrow w \$ and pass the message from the target node $w$ to the source node $v$. We can also use information from the edge itself.
+The main idea is to take an edge $e: v \rightarrow w$ and pass the message from the target node $w$ to the source node $v$. We can also use information from the edge itself.
 
 Under this lens, we can make the simplest form of message passing by adding information from neighbors and calling it a day.
 
@@ -433,6 +433,6 @@ sns.heatmap(node_reconstruction, ax=axs[1]);
 axs[1].set_title("Reconstruction");
 ```
 
-As we can see the model is able to reproduice the input raesonably well! This is without any fancy optimization, using *only* one round of message passing and *only* addition as the message operator and *no* non-linearities. We actually have a linear model on our hands and it was able to reconstruc the input using the **connectivity information** from the graph. This is indeed a trite/trivial/contrived example but it gets the point across. We wanted to build a model that could use the structural information present in a graph and we were able to do so. 
+As we can see the model is able to reproduice the input raesonably well! This is without any fancy optimization, using *only* one round of message passing and *only* addition as the message operator and *no* non-linearities. We actually have a linear model on our hands and it was able to reconstruct the input using the **connectivity information** from the graph. This is indeed a trite/trivial/contrived example but it gets the point across. We wanted to build a model that could use the structural information present in a graph and we were able to do so. 
 
 We can use our learnings here to start building more useful GNNs in the next part!
